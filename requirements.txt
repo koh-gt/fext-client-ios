@@ -1,0 +1,22 @@
+# FEXT client — desktop / development dependencies.
+#
+# This is for running app/main.py on a desktop (Windows/macOS/Linux) during
+# development. The iOS build does NOT use this file — see requirements-ios.txt
+# and scripts/build_ios.sh, which install the mobile dependencies through the
+# kivy-ios toolchain instead.
+#
+# Pinned to compatible ranges; bump deliberately and re-run tests/test_aead.py.
+
+kivy>=2.3.0,<3.0
+requests>=2.31,<3.0
+websocket-client>=1.7,<2.0     # optional: realtime push; HTTP polling if absent
+qrcode>=7.4,<9.0
+pillow>=10.0                    # used by qrcode to render QR textures
+
+# OPTIONAL native acceleration. The app runs fully without these:
+#   * cryptography — fast AES-256-GCM/HKDF. The app falls back to a verified
+#     pure-Python implementation when it is missing (this is exactly what the
+#     iOS build relies on). Install it on desktop/server for speed.
+#   * coincurve — fast libsecp256k1 ECDSA/ECDH; pure-Python fallback otherwise.
+cryptography>=41.0 ; platform_system != "iOS"
+# coincurve>=19.0 ; platform_system != "iOS"

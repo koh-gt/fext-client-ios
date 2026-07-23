@@ -1,0 +1,16 @@
+# Pure-Python packages installed INTO the kivy-ios site-packages via
+# `toolchain pip install` (see scripts/build_ios.sh). Everything here installs
+# as a pure-Python wheel — no C/Rust compilation — which is what keeps the iOS
+# build reliable.
+#
+# The compiled parts (python3, kivy, pillow) are built as kivy-ios *recipes*,
+# not from this file.
+#
+# NOT listed on purpose:
+#   * cryptography — its Rust bindings do not cross-compile through kivy-ios.
+#     The app's AEAD layer falls back to a verified pure-Python AES-256-GCM +
+#     HKDF, so it is intentionally absent here. (See app/main.py, "AEAD layer".)
+
+requests>=2.31,<3.0
+qrcode>=7.4,<9.0
+websocket-client>=1.7,<2.0

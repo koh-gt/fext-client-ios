@@ -1,0 +1,120 @@
+name: iOS
+
+# Two jobs:
+#   * test      — fast, every push/PR: compile main.py + prove the pure-Python
+#                 AEAD is byte-identical to `cryptography` (differential + KAT).
+#   * ios-build — manual (workflow_dispatch): the real kivy-ios build on macOS,
+#                 producing an UNSIGNED .app so the whole pipeline is exercised
+#                 without needing your Apple signing secrets in CI.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      app_title:
+        description: "App title / base name"
+        default: "FEXT"
+      bundle_id:
+        description: "CFBundleIdentifier"
+        default: "com.example.fext"
+      version:
+        description: "Marketing version"
+        default: "3.1.0"
+      build_number:
+        description: "Build number (CFBundleVersion)"
+        default: "1"
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cryptography (reference for the differential proof)
+        run: python -m pip install --upgrade pip cryptography
+      - name: Byte-compile the app
+        run: python -m py_compile app/main.py
+      - name: Prove the pure-Python AEAD (KAT + differential + envelope interop)
+        run: FEXT_FUZZ=2000 python tests/test_aead.py
+
+  # ---------------------------------------------------------------------------
+  ios-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 150
+    env:
+      APP_TITLE: ${{ github.event.inputs.app_title }}
+      BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
+      PROJECT_VERSION: ${{ github.event.inputs.version }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+      BUILD_DIR: ${{ github.workspace }}/build-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select a recent Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Host build tools
+        run: brew install autoconf automake libtool pkg-config
+
+      # The compiled kivy-ios frameworks (dist/) take 20–60 min to build.
+      # Cache them so only the first run pays that cost.
+      - name: Cache kivy-ios frameworks
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-ios/dist
+            build-ios/.cache
+          key: kivy-ios-${{ runner.os }}-${{ hashFiles('requirements-ios.txt') }}-v1
+          restore-keys: |
+            kivy-ios-${{ runner.os }}-
+
+      - name: Build (recipes + project + patch)
+        run: bash scripts/build_ios.sh
+
+      - name: Compile the app UNSIGNED (proves it links & packages)
+        run: |
+          set -euo pipefail
+          PROJ="$(find build-ios -maxdepth 2 -name '*.xcodeproj' | head -1)"
+          echo "Project: $PROJ"
+          SCHEME="$(xcodebuild -project "$PROJ" -list -json \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')"
+          echo "Scheme: $SCHEME"
+          xcodebuild \
+            -project "$PROJ" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build-ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Collect the unsigned .app
+        run: |
+          mkdir -p artifact
+          APP="$(find build-ios/DerivedData -maxdepth 4 -name '*.app' -type d | head -1)"
+          if [ -n "$APP" ]; then
+            cp -R "$APP" artifact/
+            echo "Bundled: $APP"
+          else
+            echo "No .app produced" >&2; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fext-ios-unsigned-app
+          path: artifact/
+          if-no-files-found: error
