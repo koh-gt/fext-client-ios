@@ -20,6 +20,14 @@
 #    METHOD=ad-hoc TEAM_ID=ABCDE12345 scripts/export_ipa.sh
 #    METHOD=ad-hoc TEAM_ID=ABCDE12345 PROFILE_NAME="FEXT AdHoc" \
 #        scripts/export_ipa.sh          # manual signing (CI-friendly)
+#
+#  Env (signed methods):
+#    TEAM_ID        required — your 10-char Apple Team ID.
+#    PROFILE_NAME   provisioning-profile NAME → selects MANUAL signing (use this
+#                   in CI). Omit for AUTOMATIC signing (a developer's own Mac).
+#    SIGN_IDENTITY  code-signing identity override. Defaults to
+#                   "Apple Distribution" (ad-hoc/app-store) or
+#                   "Apple Development" (development).
 # =============================================================================
 set -euo pipefail
 
@@ -27,6 +35,7 @@ METHOD="${METHOD:-unsigned}"
 APP_TITLE="${APP_TITLE:-FEXT}"
 TEAM_ID="${TEAM_ID:-}"
 PROFILE_NAME="${PROFILE_NAME:-}"
+SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 BUNDLE_ID="${BUNDLE_ID:-com.example.fext}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,11 +81,40 @@ fi
 [ -n "$TEAM_ID" ] || die "METHOD=$METHOD needs TEAM_ID=<your 10-char Apple Team ID>."
 ARCHIVE="$BUILD_DIR/${APP_TITLE}.xcarchive"
 
-say "Archiving (signed, team $TEAM_ID)…"
-xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
-    -sdk iphoneos -archivePath "$ARCHIVE" \
-    DEVELOPMENT_TEAM="$TEAM_ID" \
-    archive
+# Pick a sensible signing identity for the method unless one was given.
+#   development         -> "Apple Development"
+#   ad-hoc / app-store  -> "Apple Distribution"
+if [ -z "$SIGN_IDENTITY" ]; then
+    case "$METHOD" in
+        development) SIGN_IDENTITY="Apple Development" ;;
+        *)           SIGN_IDENTITY="Apple Distribution" ;;
+    esac
+fi
+
+if [ -n "$PROFILE_NAME" ]; then
+    # MANUAL signing — the reliable path in CI, where the cert lives in a
+    # temporary keychain and the .mobileprovision is dropped into
+    # ~/Library/MobileDevice/Provisioning Profiles. Automatic signing needs an
+    # interactive Xcode or an App Store Connect API key, so it is avoided here.
+    say "Archiving (MANUAL signing — team $TEAM_ID, identity '$SIGN_IDENTITY', profile '$PROFILE_NAME')…"
+    xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+        -sdk iphoneos -archivePath "$ARCHIVE" \
+        DEVELOPMENT_TEAM="$TEAM_ID" \
+        CODE_SIGN_STYLE=Manual \
+        CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+        PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+        archive
+else
+    # AUTOMATIC signing — for a developer running this on their own Mac while
+    # signed into Xcode (or with -allowProvisioningUpdates + an API key).
+    say "Archiving (AUTOMATIC signing — team $TEAM_ID)…"
+    xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+        -sdk iphoneos -archivePath "$ARCHIVE" \
+        -allowProvisioningUpdates \
+        DEVELOPMENT_TEAM="$TEAM_ID" \
+        CODE_SIGN_STYLE=Automatic \
+        archive
+fi
 
 # Build the ExportOptions plist for the chosen method (manual signing when a
 # PROFILE_NAME is given, else automatic).

@@ -32,7 +32,8 @@ configuration, a proof suite for the crypto, and CI.
 | `app/main.py` | The complete FEXT client — the kivy-ios app entry point. |
 | `tests/test_aead.py` | Proof the pure-Python AES-GCM/HKDF matches `cryptography` + NIST/RFC vectors, and that envelopes round-trip through the real `CryptoEngine`. |
 | `scripts/build_ios.sh` | One-command, reproducible kivy-ios build → Xcode project. |
-| `scripts/export_ipa.sh` | Turns the built project into an installable `.ipa` (unsigned for sideloading, or signed). |
+| `scripts/export_ipa.sh` | Turns the built project into an installable `.ipa` (unsigned for sideloading, or signed — manual signing for CI). |
+| `scripts/publish_release.sh` | Attaches the built `.ipa`(s) to a GitHub Release (full release when signed, pre-release when unsigned). |
 | `scripts/patch_xcode.py` | Injects `Info.plist` keys, icons and the launch screen into the generated project. |
 | `scripts/make_assets.py` | Regenerates the app-icon set from the brand palette. |
 | `ios/AppIcon.appiconset/` | The generated, App-Store-safe icon set (opaque, no alpha). |
@@ -147,24 +148,52 @@ METHOD=ad-hoc TEAM_ID=YOURTEAMID scripts/export_ipa.sh   # → build-ios/ipa/exp
 
 1. Push this repo (or apply the bundle) so GitHub Actions can run.
 2. **Actions → iOS → Run workflow** — the `ios-build` job runs on a macOS runner.
-3. Download the **`fext-ios-ipa`** artifact; it contains **`FEXT-unsigned.ipa`**.
+3. Grab **`FEXT-unsigned.ipa`** either from the run's **`fext-ios-ipa`** artifact
+   or, more conveniently, from the **GitHub Release** the run publishes (see
+   *"CI publishes a Release"* below).
 4. Install it with **[AltStore](https://altstore.io)** or
    **[Sideloadly](https://sideloadly.io)** — they re-sign it with your Apple ID
    and push it to the device over USB/Wi-Fi. Re-sign every 7 days on a free ID.
 
 ### C — Signed `.ipa` from CI (paid Apple Developer account)
 
-Add these and the `ios-build` job also emits a **signed** `.ipa`:
+With a paid membership the `ios-build` job also emits a **signed**,
+directly-installable `.ipa`. It signs **manually** in CI (the reliable path —
+automatic signing needs an interactive Xcode), so a **profile name is required**.
 
-- **Secrets:** `APPLE_CERT_P12_BASE64` (`base64 -i cert.p12`),
-  `APPLE_CERT_PASSWORD`, `APPLE_PROVISIONING_PROFILE_BASE64`
-  (`base64 -i profile.mobileprovision`)
-- **Variables:** `APPLE_TEAM_ID`, `APPLE_PROFILE_NAME`,
-  `IPA_METHOD` (`ad-hoc` for direct device install, `app-store` for TestFlight)
+**Secrets** (Settings → Secrets and variables → Actions → *Secrets*):
 
-Install an **ad-hoc** `.ipa` via Apple Configurator, Finder (drag it onto the
-device), or Xcode ▸ Devices & Simulators. Ad-hoc requires the device's **UDID**
-to be in the provisioning profile.
+| Secret | How to produce it |
+|--------|-------------------|
+| `APPLE_CERT_P12_BASE64` | Export your **Apple Distribution** cert + key from Keychain Access as `cert.p12`, then `base64 -i cert.p12 \| pbcopy`. |
+| `APPLE_CERT_PASSWORD` | The password you set on that `.p12`. |
+| `APPLE_PROVISIONING_PROFILE_BASE64` | An **ad-hoc** profile (`.mobileprovision`) for your bundle id, whose device list includes each target iPhone's **UDID**; `base64 -i profile.mobileprovision \| pbcopy`. |
+
+**Variables** (same page → *Variables*):
+
+| Variable | Value |
+|----------|-------|
+| `APPLE_TEAM_ID` | Your 10-char Team ID. |
+| `APPLE_PROFILE_NAME` | The profile's **exact name** (as shown in the Developer portal). **Required** — this selects manual signing. |
+| `IPA_METHOD` | `ad-hoc` (direct device install, default) or `app-store` (TestFlight). |
+| `APPLE_SIGN_IDENTITY` | *Optional* override; defaults to `Apple Distribution` (or `Apple Development` for the `development` method). |
+
+The bundle id you build with (`BUNDLE_ID`, default `com.example.fext`) **must
+match the provisioning profile**. Install the resulting **ad-hoc** `.ipa` via
+Apple Configurator, Finder (drag it onto the device), or Xcode ▸ Devices &
+Simulators — it runs only on the UDIDs baked into the profile.
+
+### CI publishes a Release
+
+Every manual **Run workflow** (unless you untick **Publish the built .ipa as a
+GitHub Release**) attaches the built `.ipa` to a GitHub Release tagged
+`v<version>-b<build>`:
+
+- a **signed** build → a **full release** (one-click download, install directly);
+- an **unsigned-only** build → a **pre-release** (re-sign to install).
+
+So the newest `.ipa` is always one click away under the repo's **Releases**,
+and it doesn't expire after 90 days the way the Actions artifact does.
 
 ### D — TestFlight / App Store
 
