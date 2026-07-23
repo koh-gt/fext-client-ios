@@ -51,12 +51,13 @@ if [ "$SIGNED" = "true" ]; then
 Apple Configurator, Finder (drag it onto the connected device), or
 Xcode ▸ Devices & Simulators. An **ad-hoc** build installs only on devices whose
 UDID is registered in the provisioning profile.'
-    PRERELEASE_FLAG=""
+    # Explicit so a later signed build promotes an earlier unsigned pre-release.
+    PRERELEASE_ARG="--prerelease=false"
 else
     INSTALL='This release contains an **unsigned** `.ipa`. iOS will not install it
 directly — re-sign it with your Apple ID using [AltStore](https://altstore.io)
 or [Sideloadly](https://sideloadly.io). A free Apple ID gives a 7-day install.'
-    PRERELEASE_FLAG="--prerelease"
+    PRERELEASE_ARG="--prerelease=true"
 fi
 
 NOTES="**${TITLE}** — FEXT for iOS.
@@ -66,15 +67,16 @@ ${INSTALL}
 Built from \`${GITHUB_SHA:-HEAD}\` by the \`iOS\` workflow."
 
 if gh release view "$TAG" >/dev/null 2>&1; then
-    say "Release $TAG already exists — refreshing assets and notes."
+    say "Release $TAG already exists — refreshing assets, notes and state."
     gh release upload "$TAG" "${IPAS[@]}" --clobber
-    gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
+    # shellcheck disable=SC2086  # PRERELEASE_ARG is a single --flag=value token.
+    gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" $PRERELEASE_ARG
 else
     say "Creating release $TAG…"
-    # shellcheck disable=SC2086  # PRERELEASE_FLAG is an intentional word-split.
+    # shellcheck disable=SC2086  # PRERELEASE_ARG is a single --flag=value token.
     gh release create "$TAG" "${IPAS[@]}" \
         --title "$TITLE" --notes "$NOTES" \
-        --target "${GITHUB_SHA:-HEAD}" $PRERELEASE_FLAG
+        --target "${GITHUB_SHA:-HEAD}" $PRERELEASE_ARG
 fi
 
 say "DONE — https://github.com/${GITHUB_REPOSITORY:-<owner>/<repo>}/releases/tag/$TAG"
