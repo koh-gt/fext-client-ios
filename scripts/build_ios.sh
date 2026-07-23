@@ -68,8 +68,10 @@ fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 python3 -m pip install --quiet --upgrade pip wheel
-say "Installing kivy-ios + cookiecutter…"
-python3 -m pip install --quiet "kivy-ios>=2024.10" cookiecutter
+say "Installing kivy-ios + Cython + cookiecutter…"
+# Cython is a host requirement for kivy-ios's Cython recipes (Kivy 2.3.1).
+# kivy-ios doesn't install it for you, so pin a version known to build Kivy.
+python3 -m pip install --quiet "kivy-ios>=2024.10" cookiecutter "Cython==3.0.11"
 
 # ---- 3. compile the recipes (LONG: 20–60 min the first time) -----------------
 #   python3  -> CPython for iOS      kivy -> Kivy + SDL2 stack
