@@ -32,6 +32,7 @@ configuration, a proof suite for the crypto, and CI.
 | `app/main.py` | The complete FEXT client — the kivy-ios app entry point. |
 | `tests/test_aead.py` | Proof the pure-Python AES-GCM/HKDF matches `cryptography` + NIST/RFC vectors, and that envelopes round-trip through the real `CryptoEngine`. |
 | `scripts/build_ios.sh` | One-command, reproducible kivy-ios build → Xcode project. |
+| `scripts/export_ipa.sh` | Turns the built project into an installable `.ipa` (unsigned for sideloading, or signed). |
 | `scripts/patch_xcode.py` | Injects `Info.plist` keys, icons and the launch screen into the generated project. |
 | `scripts/make_assets.py` | Regenerates the app-icon set from the brand palette. |
 | `ios/AppIcon.appiconset/` | The generated, App-Store-safe icon set (opaque, no alpha). |
@@ -119,26 +120,61 @@ What the script does:
 4. runs `scripts/patch_xcode.py` to set the bundle id / version and install the
    FEXT `Info.plist` keys, icons and launch screen.
 
-## Sign & run on a device
+## Install on your iPhone (getting a `.ipa`)
+
+> A `.ipa` can only be built on **macOS**, and iOS will not install an *unsigned*
+> app — "directly on an iPhone" always means *something* signs it (Xcode,
+> AltStore/Sideloadly, or your developer certificate). No `.ipa` can be produced
+> on Linux. Pick the path that matches what you have:
+
+### A — You have a Mac (easiest)
+
+Run straight from Xcode; it signs with your Apple ID (a **free** ID gives a
+7-day install, a **paid** one lasts a year):
 
 ```bash
-open build-ios/FEXT-ios/FEXT.xcodeproj
+scripts/build_ios.sh
+open build-ios/FEXT-ios/FEXT.xcodeproj   # Signing & Capabilities → your Team → ▶ Run
 ```
 
-In Xcode → target → **Signing & Capabilities**: choose your **Team** and
-confirm the **Bundle Identifier** matches what you passed above. Then
-**Product ▸ Run** (device) or **Product ▸ Archive** to distribute.
-
-Command-line archive + export (once a signing team is configured):
+Prefer a `.ipa` file? After `build_ios.sh`:
 
 ```bash
-xcodebuild -project build-ios/FEXT-ios/FEXT.xcodeproj -scheme FEXT \
-  -configuration Release -sdk iphoneos -archivePath build-ios/FEXT.xcarchive \
-  DEVELOPMENT_TEAM=YOURTEAMID archive
-
-xcodebuild -exportArchive -archivePath build-ios/FEXT.xcarchive \
-  -exportOptionsPlist ExportOptions.plist -exportPath build-ios/export
+METHOD=ad-hoc TEAM_ID=YOURTEAMID scripts/export_ipa.sh   # → build-ios/ipa/export/FEXT.ipa
 ```
+
+### B — No Mac, free Apple ID → build in CI, sideload (no paid account)
+
+1. Push this repo (or apply the bundle) so GitHub Actions can run.
+2. **Actions → iOS → Run workflow** — the `ios-build` job runs on a macOS runner.
+3. Download the **`fext-ios-ipa`** artifact; it contains **`FEXT-unsigned.ipa`**.
+4. Install it with **[AltStore](https://altstore.io)** or
+   **[Sideloadly](https://sideloadly.io)** — they re-sign it with your Apple ID
+   and push it to the device over USB/Wi-Fi. Re-sign every 7 days on a free ID.
+
+### C — Signed `.ipa` from CI (paid Apple Developer account)
+
+Add these and the `ios-build` job also emits a **signed** `.ipa`:
+
+- **Secrets:** `APPLE_CERT_P12_BASE64` (`base64 -i cert.p12`),
+  `APPLE_CERT_PASSWORD`, `APPLE_PROVISIONING_PROFILE_BASE64`
+  (`base64 -i profile.mobileprovision`)
+- **Variables:** `APPLE_TEAM_ID`, `APPLE_PROFILE_NAME`,
+  `IPA_METHOD` (`ad-hoc` for direct device install, `app-store` for TestFlight)
+
+Install an **ad-hoc** `.ipa` via Apple Configurator, Finder (drag it onto the
+device), or Xcode ▸ Devices & Simulators. Ad-hoc requires the device's **UDID**
+to be in the provisioning profile.
+
+### D — TestFlight / App Store
+
+```bash
+METHOD=app-store TEAM_ID=YOURTEAMID scripts/export_ipa.sh
+xcrun altool --upload-app -t ios -f build-ios/ipa/export/FEXT.ipa \
+  --apiKey <KEY_ID> --apiIssuer <ISSUER_ID>      # or drag into Transporter.app
+```
+
+See **App Store notes** below before any public submission.
 
 ## App Store notes (read before submitting publicly)
 

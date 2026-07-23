@@ -85,36 +85,63 @@ jobs:
       - name: Build (recipes + project + patch)
         run: bash scripts/build_ios.sh
 
-      - name: Compile the app UNSIGNED (proves it links & packages)
-        run: |
-          set -euo pipefail
-          PROJ="$(find build-ios -maxdepth 2 -name '*.xcodeproj' | head -1)"
-          echo "Project: $PROJ"
-          SCHEME="$(xcodebuild -project "$PROJ" -list -json \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')"
-          echo "Scheme: $SCHEME"
-          xcodebuild \
-            -project "$PROJ" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build-ios/DerivedData \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build
+      # Always produced, needs no secrets. Download it from the run's Artifacts
+      # and install with AltStore / Sideloadly (they re-sign with your Apple ID).
+      - name: Package UNSIGNED .ipa
+        run: METHOD=unsigned bash scripts/export_ipa.sh
 
-      - name: Collect the unsigned .app
+      # ---- optional signed .ipa (only if you configure signing) --------------
+      # Set repo secrets APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD,
+      # APPLE_PROVISIONING_PROFILE_BASE64 and repo variables APPLE_TEAM_ID,
+      # APPLE_PROFILE_NAME, IPA_METHOD (ad-hoc|development|app-store). See README.
+      - name: Detect signing configuration
+        id: signing
+        env:
+          CERT: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          TEAM: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          mkdir -p artifact
-          APP="$(find build-ios/DerivedData -maxdepth 4 -name '*.app' -type d | head -1)"
-          if [ -n "$APP" ]; then
-            cp -R "$APP" artifact/
-            echo "Bundled: $APP"
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No .app produced" >&2; exit 1
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Apple signing secrets set — producing the unsigned .ipa only."
           fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Import signing assets
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          CERT: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          CERT_PW: ${{ secrets.APPLE_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KP="$(openssl rand -hex 12)"
+          KEYCHAIN="$RUNNER_TEMP/fext-signing.keychain-db"
+          security create-keychain -p "$KP" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KP" "$KEYCHAIN"
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PW" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KP" "$KEYCHAIN" >/dev/null
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          echo "$PROFILE" | base64 --decode > "$PROFILES/fext-ci.mobileprovision"
+
+      - name: Export SIGNED .ipa
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          METHOD: ${{ vars.IPA_METHOD || 'ad-hoc' }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ vars.APPLE_PROFILE_NAME }}
+        run: bash scripts/export_ipa.sh
+
+      - name: Upload .ipa artifact(s)
+        uses: actions/upload-artifact@v4
         with:
-          name: fext-ios-unsigned-app
-          path: artifact/
+          name: fext-ios-ipa
+          path: |
+            build-ios/ipa/*.ipa
+            build-ios/ipa/export/*.ipa
           if-no-files-found: error
