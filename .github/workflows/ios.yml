@@ -1,0 +1,147 @@
+name: iOS
+
+# Two jobs:
+#   * test      — fast, every push/PR: compile main.py + prove the pure-Python
+#                 AEAD is byte-identical to `cryptography` (differential + KAT).
+#   * ios-build — manual (workflow_dispatch): the real kivy-ios build on macOS,
+#                 producing an UNSIGNED .app so the whole pipeline is exercised
+#                 without needing your Apple signing secrets in CI.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      app_title:
+        description: "App title / base name"
+        default: "FEXT"
+      bundle_id:
+        description: "CFBundleIdentifier"
+        default: "com.example.fext"
+      version:
+        description: "Marketing version"
+        default: "3.1.0"
+      build_number:
+        description: "Build number (CFBundleVersion)"
+        default: "1"
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cryptography (reference for the differential proof)
+        run: python -m pip install --upgrade pip cryptography
+      - name: Byte-compile the app
+        run: python -m py_compile app/main.py
+      - name: Prove the pure-Python AEAD (KAT + differential + envelope interop)
+        run: FEXT_FUZZ=2000 python tests/test_aead.py
+
+  # ---------------------------------------------------------------------------
+  ios-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 150
+    env:
+      APP_TITLE: ${{ github.event.inputs.app_title }}
+      BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
+      PROJECT_VERSION: ${{ github.event.inputs.version }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+      BUILD_DIR: ${{ github.workspace }}/build-ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select a recent Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Host build tools
+        run: brew install autoconf automake libtool pkg-config
+
+      # The compiled kivy-ios frameworks (dist/) take 20–60 min to build.
+      # Cache them so only the first run pays that cost.
+      - name: Cache kivy-ios frameworks
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-ios/dist
+            build-ios/.cache
+          key: kivy-ios-${{ runner.os }}-${{ hashFiles('requirements-ios.txt') }}-v1
+          restore-keys: |
+            kivy-ios-${{ runner.os }}-
+
+      - name: Build (recipes + project + patch)
+        run: bash scripts/build_ios.sh
+
+      # Always produced, needs no secrets. Download it from the run's Artifacts
+      # and install with AltStore / Sideloadly (they re-sign with your Apple ID).
+      - name: Package UNSIGNED .ipa
+        run: METHOD=unsigned bash scripts/export_ipa.sh
+
+      # ---- optional signed .ipa (only if you configure signing) --------------
+      # Set repo secrets APPLE_CERT_P12_BASE64, APPLE_CERT_PASSWORD,
+      # APPLE_PROVISIONING_PROFILE_BASE64 and repo variables APPLE_TEAM_ID,
+      # APPLE_PROFILE_NAME, IPA_METHOD (ad-hoc|development|app-store). See README.
+      - name: Detect signing configuration
+        id: signing
+        env:
+          CERT: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          TEAM: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Apple signing secrets set — producing the unsigned .ipa only."
+          fi
+
+      - name: Import signing assets
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          CERT: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          CERT_PW: ${{ secrets.APPLE_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KP="$(openssl rand -hex 12)"
+          KEYCHAIN="$RUNNER_TEMP/fext-signing.keychain-db"
+          security create-keychain -p "$KP" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KP" "$KEYCHAIN"
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PW" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KP" "$KEYCHAIN" >/dev/null
+          PROFILES="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES"
+          echo "$PROFILE" | base64 --decode > "$PROFILES/fext-ci.mobileprovision"
+
+      - name: Export SIGNED .ipa
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          METHOD: ${{ vars.IPA_METHOD || 'ad-hoc' }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ vars.APPLE_PROFILE_NAME }}
+        run: bash scripts/export_ipa.sh
+
+      - name: Upload .ipa artifact(s)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fext-ios-ipa
+          path: |
+            build-ios/ipa/*.ipa
+            build-ios/ipa/export/*.ipa
+          if-no-files-found: error

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  FEXT Info.plist additions. scripts/patch_xcode.py merges these keys into the
+  kivy-ios-generated <App>-Info.plist. Identity keys (CFBundleIdentifier,
+  versions, CFBundleDisplayName) are set separately from the build CLI.
+
+  ATS / cleartext transport: the pinned relay is http/ws on a bare IP
+  (http://118.189.201.104:50607). ATS cannot scope an exception to an IP
+  literal, so NSAllowsArbitraryLoads is the only functional setting. The app's
+  own networking is Python sockets (requests + websocket-client), which bypass
+  ATS regardless, and every byte on the wire is already E2E ciphertext.
+  >>> For public App Store review, move the relay to HTTPS/WSS on a domain and
+  >>> DELETE the NSAppTransportSecurity key below. See README "App Store notes".
+
+  Export compliance (ITSAppUsesNonExemptEncryption) is deliberately NOT set
+  here — it is a legal declaration the publisher must make. See README.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+</dict>
+</plist>
