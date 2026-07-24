@@ -14,3 +14,13 @@
 requests>=2.31,<3.0
 qrcode>=7.4,<9.0
 websocket-client>=1.7,<2.0
+
+# certifi — the CA bundle SHIPPED INSIDE the app. v7 moved the relay to
+# HTTPS/WSS, so both transports must verify against a trust store that actually
+# resolves on the device. `requests` already verifies against certifi; v7 also
+# pins `websocket-client` to certifi.where() (see _ws_ssl_options in main.py),
+# because its default OS trust store frequently does not resolve on mobile and
+# WSS would then silently fall back to HTTP polling. `requests` pulls certifi in
+# transitively, but it is listed explicitly so the WSS trust store can never go
+# missing. Pure-Python wheel — no native build.
+certifi>=2024.2.2

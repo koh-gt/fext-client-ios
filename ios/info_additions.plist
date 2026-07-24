@@ -5,13 +5,16 @@
   kivy-ios-generated <App>-Info.plist. Identity keys (CFBundleIdentifier,
   versions, CFBundleDisplayName) are set separately from the build CLI.
 
-  ATS / cleartext transport: the pinned relay is http/ws on a bare IP
-  (http://118.189.201.104:50607). ATS cannot scope an exception to an IP
-  literal, so NSAllowsArbitraryLoads is the only functional setting. The app's
-  own networking is Python sockets (requests + websocket-client), which bypass
-  ATS regardless, and every byte on the wire is already E2E ciphertext.
-  >>> For public App Store review, move the relay to HTTPS/WSS on a domain and
-  >>> DELETE the NSAppTransportSecurity key below. See README "App Store notes".
+  ATS / transport: as of v7 the pinned relay is HTTPS/WSS, but still on a bare
+  IP (https://118.189.201.104:50607), not a domain. ATS cannot scope an
+  exception to an IP literal, and its handling of certificates issued for an IP
+  is historically brittle. FEXT's own networking is Python sockets (requests +
+  websocket-client verifying against the shipped certifi bundle), which bypass
+  ATS entirely, so this key does not affect FEXT's connectivity either way — it
+  is kept only as belt-and-suspenders for the bare-IP endpoint. Every byte on
+  the wire is TLS AND already E2E ciphertext underneath.
+  >>> For public App Store review, move the relay to a real domain, then DELETE
+  >>> the NSAppTransportSecurity key below. See README "App Store notes".
 
   Export compliance (ITSAppUsesNonExemptEncryption) is deliberately NOT set
   here — it is a legal declaration the publisher must make. See README.

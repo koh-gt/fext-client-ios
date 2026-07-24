@@ -12,6 +12,8 @@ requests>=2.31,<3.0
 websocket-client>=1.7,<2.0     # optional: realtime push; HTTP polling if absent
 qrcode>=7.4,<9.0
 pillow>=10.0                    # used by qrcode to render QR textures
+certifi>=2024.2.2              # CA bundle; v7 pins BOTH requests and the WSS
+                               # socket to it (see _ws_ssl_options in main.py)
 
 # OPTIONAL native acceleration. The app runs fully without these:
 #   * cryptography — fast AES-256-GCM/HKDF. The app falls back to a verified

@@ -35,6 +35,7 @@ def _install_kivy_stubs():
 
     ns = types.SimpleNamespace
     mod("kivy")
+    mod("kivy.animation", Animation=cls("Animation"))
     mod("kivy.app", App=cls("App"))
     mod("kivy.clock", Clock=ns(schedule_once=lambda *a, **k: None,
                                schedule_interval=lambda *a, **k: None))
@@ -50,6 +51,7 @@ def _install_kivy_stubs():
     for path, names in {
         "anchorlayout": ["AnchorLayout"], "behaviors": ["ButtonBehavior"],
         "boxlayout": ["BoxLayout"], "filechooser": ["FileChooserListView"],
+        "floatlayout": ["FloatLayout"],
         "image": ["Image"], "label": ["Label"], "modalview": ["ModalView"],
         "scrollview": ["ScrollView"], "textinput": ["TextInput"],
         "widget": ["Widget"],

@@ -14,7 +14,7 @@
 #  Environment overrides (all optional):
 #      APP_TITLE            display/base name         (default: FEXT)
 #      BUNDLE_ID            CFBundleIdentifier         (default: com.example.fext)
-#      PROJECT_VERSION      marketing version          (default: 3.1.0)
+#      PROJECT_VERSION      marketing version          (default: 7.0.0)
 #      BUILD_NUMBER         CFBundleVersion            (default: 1)
 #      BUILD_DIR            where to generate/build    (default: ./build-ios)
 #      SKIP_TOOLCHAIN_BUILD =1 to skip the long recipe compile if already done
@@ -23,7 +23,7 @@ set -euo pipefail
 
 APP_TITLE="${APP_TITLE:-FEXT}"
 BUNDLE_ID="${BUNDLE_ID:-com.example.fext}"
-PROJECT_VERSION="${PROJECT_VERSION:-3.1.0}"
+PROJECT_VERSION="${PROJECT_VERSION:-7.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
